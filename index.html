@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mario Retro Arcade</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 0;
+            background: radial-gradient(circle, #1e2230 0%, #0c0e14 100%);
+            color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden; height: 100vh;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+        }
+
+        h1 { 
+            font-size: 2.5rem; letter-spacing: 2px; text-transform: uppercase; 
+            margin-bottom: 5px; text-shadow: 0 0 15px rgba(255,255,255,0.1); 
+        }
+        
+        #status-bar { 
+            background: rgba(255, 255, 255, 0.07); padding: 8px 20px; 
+            border-radius: 20px; font-size: 0.95rem; margin-bottom: 30px; color: #ff4a4a; 
+        }
+        #status-bar.connected { color: #10b981; box-shadow: 0 0 15px rgba(16,185,129,0.3); }
+
+        /* Carousel Architecture */
+        .carousel-viewport { 
+            position: relative; width: 100vw; height: 360px; 
+            display: flex; justify-content: center; align-items: center; perspective: 1000px; 
+        }
+        .carousel-track { 
+            display: flex; position: absolute; 
+            transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1); transform-style: preserve-3d; 
+        }
+
+        /* Pure Official Box Art Ratio Cards */
+        .game-card {
+            width: 220px; height: 280px; margin: 0 20px;
+            border: 4px solid rgba(255,255,255,0.15); border-radius: 12px;
+            display: flex; flex-direction: column; justify-content: flex-end;
+            padding: 15px; position: relative; background-size: cover; background-position: center;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+            transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        .game-card.active { 
+            transform: scale(1.2); border-color: #ffcc00; 
+            box-shadow: 0 0 35px rgba(255, 204, 0, 0.4), 0 15px 30px rgba(0,0,0,0.8); 
+        }
+
+        /* Top Left Favorite Tag */
+        .favorite-badge {
+            position: absolute; top: 12px; left: 12px;
+            background: #ffcc00; color: #000;
+            font-weight: 900; font-size: 0.7rem; letter-spacing: 1px;
+            padding: 4px 10px; border-radius: 6px; text-transform: uppercase;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            display: none; z-index: 5;
+        }
+        .game-card.is-favorite .favorite-badge { display: block; }
+
+        .card-overlay { 
+            position: absolute; bottom: 0; left: 0; right: 0; top: 0; 
+            background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0) 100%); 
+            border-radius: 8px; z-index: 1; 
+        }
+        .card-content { position: relative; z-index: 2; text-align: center; width: 100%; }
+        .game-title { font-size: 1.15rem; font-weight: bold; margin: 0; text-shadow: 0 2px 4px #000; }
+        .game-system { font-size: 0.75rem; color: #ffcc00; font-weight: bold; letter-spacing: 1px; margin-top: 3px; display: block; }
+
+        /* Vertical Interactive Dropdown Overlay Panel */
+        #dropdown-menu {
+            position: fixed; top: 90px; right: -320px; width: 300px; height: calc(100vh - 180px);
+            background: rgba(15, 18, 27, 0.95); border-left: 3px solid #ffcc00;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.7); z-index: 100;
+            transition: right 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+            padding: 20px; display: flex; flex-direction: column; border-radius: 12px 0 0 12px;
+        }
+        #dropdown-menu.open { right: 0; }
+        #dropdown-menu h2 { font-size: 1.3rem; text-transform: uppercase; margin-top: 0; color: #ffcc00; border-bottom: 2px solid rgba(255,255,240,0.1); padding-bottom: 8px; }
+        
+        .fav-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex-grow: 1; }
+        .fav-item { 
+            padding: 12px; margin-bottom: 8px; background: rgba(255,255,255,0.05); 
+            border-radius: 6px; font-weight: bold; border-left: 4px solid transparent; transition: all 0.2s;
+        }
+        .fav-item.selected { background: #ffcc00; color: black; border-left-color: #fff; transform: scale(1.02); }
+
+        /* Full Screen Emulator Window Layout */
+        #emulator-popup { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: black; z-index: 999; }
+        #game-player-frame { width: 100%; height: 100%; border: none; }
+        .close-btn { 
+            position: absolute; top: 15px; right: 15px; z-index: 10000; 
+            background: #ff4a4a; color: white; padding: 10px 18px; border: none; 
+            font-weight: bold; border-radius: 6px; cursor: pointer; 
+        }
+
+        .controls-hint { margin-top: 30px; color: #888; font-size: 0.95rem; }
+        .badge { background: #333; padding: 2px 7px; border-radius: 4px; color: #eee; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>Mario Retro Engine</h1>
+    <div id="status-bar">🎮 Connect your Xbox controller or use Keyboard Left/Right Arrows...</div>
+
+    <div class="carousel-viewport">
+        <div class="carousel-track" id="track"></div>
+    </div>
+
+    <!-- Dropdown Menu UI Panel -->
+    <div id="dropdown-menu">
+        <h2>Favorites List</h2>
+        <div id="fav-list-container" class="fav-list"></div>
+    </div>
+
+    <div class="controls-hint">
+        Move Carousel: <span class="badge">◀ / ▶</span> | Select Game: <span class="badge" style="background:#ffcc00; color:#000;">A Button / Enter</span> <br><br>
+        Add Favorite Toggle: <span class="badge">X Button / F Key</span> | Open Favorites Dropdown Menu: <span class="badge">Y Button / V Key</span>
+    </div>
+
+    <div id="emulator-popup">
+        <button class="close-btn" onclick="closeEmulator()">❌ CLOSE GAME (ESC)</button>
+        <div id="game-player-frame"></div>
+    </div>
+
+<script>
+    // Clean database containing exclusively authentic official box art imagery roots
+    const gameDatabase = [
+        { title: "Super Mario Bros.", system: "NES", core: "nes", rom: "roms/mario1.nes", img: "https://info.samuraics.com/wp-content/uploads/2021/04/Super_Mario_Bros._box.jpg", favorite: false },
+        { title: "Super Mario Bros. 3", system: "NES", core: "nes", rom: "roms/mario3.nes", img: "https://upload.wikimedia.org/wikipedia/en/a/a5/Super_Mario_Bros._3_coverart.png", favorite: false },
+        { title: "Super Mario World", system: "SNES", core: "snes", rom: "roms/smw.sfc", img: "https://upload.wikimedia.org/wikipedia/en/3/32/Super_Mario_World_Coverart.png", favorite: false },
+        { title: "Mario Kart Super Circuit", system: "GBA", core: "gba", rom: "roms/mariokart_gba.gba", img: "https://upload.wikimedia.org/wikipedia/en/c/cf/Mario_Kart_Super_Circuit_Box_Art.png", favorite: false },
+        { title: "Super Mario Advance 4", system: "GBA", core: "gba", rom: "roms/marioadvance4.gba", img: "https://upload.wikimedia.org/wikipedia/en/d/d4/Super_Mario_Advance_4_Super_Mario_Bros_3_Box_Art.jpg", favorite: false },
+        { title: "Super Mario 64", system: "N64", core: "n64", rom: "roms/sm64.z64", img: "https://upload.wikimedia.org/wikipedia/en/5/50/Super_Mario_64_box_cover.jpg", favorite: false },
+        { title: "Mario Kart 64", system: "N64", core: "n64", rom: "roms/mk64.z64", img: "https://upload.wikimedia.org/wikipedia/en/c/c4/Mariokart64box.png", favorite: false }
+    ];
+
+    const track = document.getElementById('track');
+    const statusBar = document.getElementById('status-bar');
+    const dropdownMenu = document.getElementById('dropdown-menu');
+    const favListContainer = document.getElementById('fav-list-container');
+    
+    let currentIndex = 0;
+    let controllerIndex = null;
+    let inputCooldown = false;
+    let isMenuOpen = false;
+    let menuSelectedIndex = 0;
+
+    function renderCards() {
+        track.innerHTML = '';
+        gameDatabase.forEach((game, idx) => {
+            const card = document.createElement('div');
+            card.className = `game-card ${idx === currentIndex ? 'active' : ''} ${game.favorite ? 'is-favorite' : ''}`;
+            card.style.backgroundImage = `url('${game.img}')`;
+            card.innerHTML = `
+                <div class="favorite-badge">FAVORITE</div>
+                <div class="card-overlay"></div>
+                <div class="card-content">
+                    <p class="game-title">${game.title}</p>
+                    <span class="game-system">${game.system}</span>
+                </div>
+            `;
+            track.appendChild(card);
+        });
+        updateCarousel();
+        renderDropdownList();
+    }
+
+    function updateCarousel() {
+        if (isMenuOpen) return;
+        const offset = -currentIndex * (220 + 40); // card width + margin
+        track.style.transform = `translateX(${offset}px)`;
+        const cards = document.querySelectorAll('.game-card');
+        cards.forEach((card, idx) => { card.classList.toggle('active', idx === currentIndex); });
+    }
+
+    function toggleFavorite() {
+        gameDatabase[currentIndex].favorite = !gameDatabase[currentIndex].favorite;
+        renderCards();
+    }
+
+    function toggleDropdownMenu() {
+        isMenuOpen = !isMenuOpen;
+        if (isMenuOpen) {
+            dropdownMenu.classList.add('open');
+            menuSelectedIndex = 0;
+            renderDropdownList();
+        } else {
+            dropdownMenu.classList.remove('open');
+            updateCarousel();
+        }
+    }
+
+    function renderDropdownList() {
+        const favorites = gameDatabase.filter(g => g.favorite);
+        favListContainer.innerHTML = '';
+        if (favorites.length === 0) {
+            favListContainer.innerHTML = '<div style="color:#666; font-style:italic; padding:10px;">No favorite titles added yet. Press X to add some!</div>';
+            return;
+        }
+        
+        favorites.forEach((game, idx) => {
+            const item = document.createElement('div');
+            item.className = `fav-item ${idx === menuSelectedIndex ? 'selected' : ''}`;
+            item.innerText = `${game.title} (${game.system})`;
+            favListContainer.appendChild(item);
+        });
+    }
+
+    function launchGame() {
+        let game;
+        if (isMenuOpen) {
+            const favorites = gameDatabase.filter(g => g.favorite);
+            if (favorites.length === 0) return;
+            game = favorites[menuSelectedIndex];
+        } else {
+            game = gameDatabase[currentIndex];
+        }
+        
+        document.getElementById('emulator-popup').style.display = 'block';
+        const container = document.getElementById('game-player-frame');
+        container.innerHTML = `<div id="ejs-game-element" style="width:100%;height:100%;"></div>`;
+        
+        window.EJS_player = '#ejs-game-element';
+        window.EJS_core = game.core;
+        window.EJS_gameUrl = game.rom;
+        window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+        
+        const loaderScript = document.createElement('script');
+        loaderScript.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
+        container.appendChild(loaderScript);
+    }
+
+    function closeEmulator() {
+        document.getElementById('emulator-popup').style.display = 'none';
+        document.getElementById('game-player-frame').innerHTML = '';
+    }
+
+    // Keyboard configuration inputs
+    window.addEventListener("keydown", (e) => {
+        if (!isMenuOpen) {
+            if (e.key === "ArrowRight") { if (currentIndex < gameDatabase.length - 1) { currentIndex++; updateCarousel(); } }
+            if (e.key === "ArrowLeft") { if (currentIndex > 0) { currentIndex--; updateCarousel(); } }
+        } else {
+            const favorites = gameDatabase.filter(g => g.favorite);
+            if (e.key === "ArrowDown") { if (menuSelectedIndex < favorites.length - 1) { menuSelectedIndex++; renderDropdownList(); } }
+            if (e.key === "ArrowUp") { if (menuSelectedIndex > 0) { menuSelectedIndex--; renderDropdownList(); } }
+        }
+        if (e.key === "f" || e.key === "F") { toggleFavorite(); }
+        if (e.key === "v" || e.key === "V") { toggleDropdownMenu(); }
+        if (e.key === "Enter") { launchGame(); }
+        if (e.key === "Escape") { closeEmulator(); }
+    });
+
+    // Hardware Xbox tracking loop setup
+    window.addEventListener("gamepadconnected", (e) => {
+        controllerIndex = e.gamepad.index;
+        statusBar.innerText = `🟢 Xbox Controller Ready: ${e.gamepad.id}`;
+        statusBar.classList.add('connected');
+    });
+
+    window.addEventListener("gamepaddisconnected", () => {
+        controllerIndex = null;
+        statusBar.innerText = "🎮 Connect your Xbox controller or use Keyboard...";
+        statusBar.classList.remove('connected');
+    });
+
+    function controllerLoop() {
+        if (controllerIndex !== null) {
+            const pad = navigator.getGamepads()[controllerIndex];
+            if (pad) {
+                const stickX = pad.axes[0];
+                const stickY = pad.axes[1];
+                const dLeft = pad.buttons[14].pressed;
+                const dRight = pad.buttons[15].pressed;
+                const dUp = pad.buttons[12].pressed;
+                const dDown = pad.buttons[13].pressed;
+                const btnA = pad.buttons[0].pressed;  // Xbox A
+                const btnX = pad.buttons[2].pressed;  // Xbox X
+                const btnY = pad.buttons[3].pressed;  // Xbox Y
+
+                if (!inputCooldown) {
+                    if (!isMenuOpen) {
+                        if (stickX > 0.5 || dRight) {
+                            if (currentIndex < gameDatabase.length - 1) { currentIndex++; updateCarousel(); triggerCooldown(); }
+                        }
+                        else if (stickX < -0.5 || dLeft) {
+                            if (currentIndex > 0) { currentIndex--; updateCarousel(); triggerCooldown(); }
+                        }
+                    } else {
+                        const favorites = gameDatabase.filter(g => g.favorite);
+                        if (stickY > 0.5 || dDown) {
+                            if (menuSelectedIndex < favorites.length - 1) { menuSelectedIndex++; renderDropdownList(); triggerCooldown(); }
+                        }
+                        else if (stickY < -0.5 || dUp) {
+                            if (menuSelectedIndex > 0) { menuSelectedIndex--; renderDropdownList(); triggerCooldown(); }
+                        }
+                    }
+
+                    if (btnA) { launchGame(); triggerCooldown(); }
+                    if (btnX) { toggleFavorite(); triggerCooldown(); }
+                    if (btnY) { toggleDropdownMenu(); triggerCooldown(); }
+                }
+
+                if (Math.abs(stickX) < 0.2 && Math.abs(stickY) < 0.2 && !dLeft && !dRight && !dUp && !dDown && !btnA && !btnX && !btnY) {
+                    inputCooldown = false;
+                }
+            }
+        }
+        requestAnimationFrame(controllerLoop);
+    }
+
+    function triggerCooldown() { inputCooldown = true; }
+
+    renderCards();
+    controllerLoop();
+</script>
+</body>
+</html>
